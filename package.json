@@ -1,7 +1,13 @@
 {
   "name": "my-site",
   "version": "1.0.0",
-  "main": "server.js" 
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+    "mongodb": "^6.11.0"
+  },
+  "license": "CJZ"
 }
-
-
