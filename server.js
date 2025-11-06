@@ -6,6 +6,8 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static(__dirname)); // serve index.html + chatbot.js
+
 
 // MongoDB setup
 const mongoUri = process.env.MONGODB_URI;
