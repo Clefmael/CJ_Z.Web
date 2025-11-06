@@ -6,9 +6,12 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "mongodb": "^6.11.0"
+    "mongodb": "^6.11.0",
+    "node-fetch": "^3.3.2",
+    "cors": "^2.8.5"
   },
   "license": "CJZ"
 }
+
 
 
