@@ -1,22 +1,24 @@
 import express from "express";
-import fetch from "node-fetch";
 import { MongoClient } from "mongodb";
 import cors from "cors";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname)); // serve index.html + chatbot.js
 
+// Serve your frontend files (index.html, chatbot.js, css, etc.)
+app.use(express.static(__dirname));
 
-// MongoDB setup
+// MongoDB setup and chat backend
 const mongoUri = process.env.MONGODB_URI;
 const client = new MongoClient(mongoUri);
 await client.connect();
 const db = client.db("chatbot_data");
 const collection = db.collection("pages");
 
-// LLM (Hugging Face) API
+// LLM / Hugging Face logic
+import fetch from "node-fetch";
+
 async function askLLM(question, context) {
   const response = await fetch("https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct", {
     method: "POST",
@@ -32,22 +34,17 @@ async function askLLM(question, context) {
   return data[0]?.generated_text || "Sorry, I couldn’t generate an answer.";
 }
 
-// Chat endpoint
+// Chat endpoint (still needed for chatbot.js)
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "No message provided." });
 
-  // 1. Pull context from MongoDB
   const page = await collection.findOne({}, { sort: { scrapedAt: -1 } });
   const context = page?.text?.slice(0, 4000) || "";
 
-  // 2. Get AI response
   const answer = await askLLM(message, context);
   res.json({ answer });
 });
-
-// Root route for testing
-app.get("/", (req, res) => res.send("✅ Chatbot backend is running!"));
 
 // Start server
 const PORT = process.env.PORT || 3000;
