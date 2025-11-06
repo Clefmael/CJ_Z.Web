@@ -4,7 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static("public")); // serve index.html + chatbot.js
+app.use(express.static(__dirname)); // serve index.html + chatbot.js
 
 // MongoDB setup
 const uri = process.env.MONGODB_URI; // store securely in Render environment variables
