@@ -1,0 +1,201 @@
+/* --- Body & General --- */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background-color: black;
+    color: red;
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+h1 {
+    text-align: center;
+    margin-top: 20px;
+}
+
+/* --- Navigation --- */
+.navigation {
+    position: fixed;          /* stays visible on screen */
+    bottom: 20px;             /* default bottom-right */
+    right: 20px;
+    width: 60px;
+    height: 50px;
+    border-radius: 8px;
+    overflow: hidden;
+    z-index: 10000;
+    transition: width 0.3s ease, height 0.3s ease, padding 0.3s ease, box-shadow 0.3s ease;
+    background: transparent;
+    cursor: move;             /* show it’s draggable */
+}
+
+/* Navigation when active */
+.navigation.active {
+    width: 300px;
+    height: 400px;
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid red;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+}
+
+/* --- Toggle Button --- */
+.toggle {
+    position: absolute; /* stay on top-left */
+    top: 0;
+    left: 0;
+    width: 60px;
+    height: 60px;
+    cursor: pointer;
+    z-index: 999; /* always above chat */
+    border-radius: 8px;
+    background-image: url("images/a.jpg");
+    background-position: top left;
+    background-repeat: no-repeat;
+    background-size: contain;
+    transition: all 0.3s ease;
+}
+
+/* Toggle active overlay when nav is open */
+.navigation.active .toggle {
+    width: 60px;
+    height: 60px;
+    border-radius: 8px;
+    background-image: url("images/a.jpg");
+    background-position: top left;
+    background-repeat: no-repeat;
+    background-size: contain;
+}
+
+/* --- Chat Screen inside navigation --- */
+.chat-screen {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    margin-top: 60px; /* space for toggle */
+    overflow: hidden;
+}
+
+/* Show chat screen when navigation active */
+.navigation.active .chat-screen {
+    display: flex;
+}
+
+/* Messages container */
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    padding: 10px;
+    padding-bottom: 90px;
+}
+
+/* Each message */
+.message {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 10px;
+    max-width: 80%;
+    word-break: break-word;
+}
+
+/* Message text */
+.message .text {
+    display: inline-block;
+    max-width: 100%;
+    line-height: 1.3;
+    position: relative;
+    z-index: 1;
+}
+
+/* User message (right side) */
+.my-message {
+    align-self: flex-end;
+    text-align: right;
+}
+
+.my-message .text {
+    background: red;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 12px;
+}
+
+/* Bot message (left side) */
+.bot-message {
+    align-self: flex-start;
+    text-align: left;
+}
+
+.bot-message .text {
+    background: #2a2a2a;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 12px;
+}
+
+/* Name label above each message */
+.name {
+    font-size: 0.75em;
+    color: #ff6666;
+    margin: 0 0 6px 0;
+}
+
+/* Input area */
+.typebox {
+    display: flex;
+    align-items: center;
+    border-top: 1px solid red;
+    padding: 8px;
+    background: transparent;
+}
+
+#message-input {
+flex: 1;
+min-height: 38px;
+padding: 8px 10px;
+border: none;
+border-radius: 6px;
+background: #111;
+color: white;
+line-height: 1.2;
+resize: none;
+}
+
+#send-message {
+background: red;
+border: none;
+color: white;
+padding: 8px 15px;
+margin-left: 8px;
+border-radius: 6px;
+cursor: pointer;
+}
+
+/* Scrollbar for messages */
+.messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+    background-color: red;
+    border-radius: 3px;
+}
+
+.messages::-webkit-scrollbar-track {
+    background: #111;
+}
+
+/* --- Responsive --- */
+@media (max-width: 500px) {
+    .navigation.active {
+        width: 90%;
+        height: 60%;
+    }
+}
