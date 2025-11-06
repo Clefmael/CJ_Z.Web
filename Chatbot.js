@@ -84,21 +84,26 @@ $(function() {
     }
 
     async function handleBotResponse(text) {
-        const apiUrl = "https://nodejs-serverless-function-express-84ti1khnz-clefmaels-projects.vercel.app/api/hello";
-        try {
-            const $loading = $('<div class="message bot-message"><div class="name">Bot</div><div class="text">...</div></div>');
-            $messages.append($loading);
-            $messages.scrollTop($messages[0].scrollHeight);
+    const apiUrl = "https://cj-z-web.onrender.com/ask";
+    try {
+        const $loading = $('<div class="message bot-message"><div class="name">Bot</div><div class="text">...</div></div>');
+        $messages.append($loading);
+        $messages.scrollTop($messages[0].scrollHeight);
 
-            const res = await fetch(`${apiUrl}?q=${encodeURIComponent(text)}`);
-            const data = await res.json();
+        const res = await fetch(apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: text })
+        });
+        const data = await res.json();
 
-            $loading.remove();
-            addMessage("Bot", data.answer || "I couldn't find an answer 😅");
-        } catch {
-            addMessage("Bot", "Something went wrong 😅");
-        }
+        $loading.remove();
+        addMessage("Bot", data.answer || "I couldn't find an answer 😅");
+    } catch {
+        addMessage("Bot", "Something went wrong 😅");
     }
+}
+
 
     $sendBtn.on('click', () => {
         const text = $input.val().trim();
