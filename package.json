@@ -1,6 +1,7 @@
 {
   "name": "my-site",
   "version": "1.0.0",
-  "main": "server.js" <- trailing comma here
+  "main": "server.js" 
 }
+
 
