@@ -6,6 +6,10 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 app.use(express.json());
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static(__dirname)); // serve index.html, chatbot.js, etc.
 
 const PORT = 3000;
 const mongoUri = process.env.MONGODB_URI;
