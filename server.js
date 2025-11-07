@@ -52,7 +52,7 @@ app.post("/chat", async (req, res) => {
 
   try {
     await client.connect();
-    const db = client.db("chatbot_data");
+    const db = client.db("chatbotdb");
     const collection = db.collection("pages");
 
     // Find pages containing keywords from user message
