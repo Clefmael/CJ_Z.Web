@@ -1,119 +1,84 @@
-const express = require("express");
-const { MongoClient } = require("mongodb");
-const cors = require("cors");
-const OpenAI = require("openai");
+import express from "express";
+import { MongoClient } from "mongodb";
+import OpenAI from "openai";
+import cors from "cors";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname)); // serve index.html, chatbot.js, etc.
 
-// MongoDB setup
+const PORT = 3000;
 const mongoUri = process.env.MONGODB_URI;
 const client = new MongoClient(mongoUri);
-let db;
+await client.connect();
+const db = client.db("chatbotdb");
+const collection = db.collection("pages");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Hugging Face Llama 3.1 (OpenAI-compatible endpoint)
-const hfClient = new OpenAI({
-  apiKey: process.env.HUGGINGFACE_API_KEY,
-  baseURL: "https://router.huggingface.co/v1",
-});
+// 1️⃣ Retrieve top-k chunks by vector similarity
+async function getRelevantChunks(query, k = 5) {
+  const qEmb = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: query,
+  });
 
-// Connect once and reuse
-async function initMongo() {
-  if (!db) {
-    await client.connect();
-    db = client.db("chatbotdb");
-    console.log("✅ Connected to MongoDB");
-  }
+  const results = await collection
+    .aggregate([
+      {
+        $vectorSearch: {
+          queryVector: qEmb.data[0].embedding,
+          path: "embedding",
+          numCandidates: 100,
+          limit: k,
+        },
+      },
+    ])
+    .toArray();
+
+  return results; // array of chunk documents
 }
 
-// Retrieve relevant snippets
-async function getRelevantSnippets(message) {
-  const collection = db.collection("pages");
-  let results = [];
+// 2️⃣ Ask LLM using retrieved chunks
+async function askLLM(query, chunks) {
+  const context = chunks.map((c) => c.text).join("\n---\n");
 
-  try {
-    // Try text search (requires text index)
-    results = await collection
-      .find(
-        { $text: { $search: message } },
-        { projection: { score: { $meta: "textScore" } } }
-      )
-      .sort({ score: { $meta: "textScore" } })
-      .limit(5)
-      .toArray();
-  } catch {
-    // If no text index or error, ignore
-  }
-
-  // Fallback: simple regex search
-  if (results.length === 0) {
-    const keywords = message.split(/\s+/).filter(Boolean);
-    results = await collection
-      .find({
-        $or: keywords.map((k) => ({ text: { $regex: k, $options: "i" } })),
-      })
-      .limit(5)
-      .toArray();
-  }
-
-  return results;
-}
-
-// Ask LLM using context only
-async function askLLM(message, snippets) {
-  const context = snippets.map((s) => s.text).join("\n\n---\n\n");
-
-  const completion = await hfClient.chat.completions.create({
-    model: "meta-llama/Llama-3.1-8B-Instruct:novita",
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.2, // low creativity
     messages: [
       {
         role: "system",
         content: `
-You are a grounded assistant. 
-Use ONLY the text provided in the context below to answer the user. 
-If the answer is not clearly supported by the context, reply exactly with: "I don't know based on the available data."`,
+You are a chatbot whose memory comes ONLY from the database below.
+Answer using ONLY this memory. 
+If the answer is not in the memory, respond exactly with: "I don’t have that information in my memory."`,
       },
       {
         role: "user",
-        content: `Context:\n${context}\n\nUser Question: ${message}`,
+        content: `Database memory:\n${context}\n\nUser Question: ${query}`,
       },
     ],
-    max_tokens: 512,
   });
 
-  return completion.choices[0]?.message?.content?.trim() || "No answer generated.";
+  return completion.choices[0].message.content.trim();
 }
 
-// Chat endpoint
+// 3️⃣ Chat endpoint
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "No message provided." });
 
   try {
-    await initMongo();
-    const snippets = await getRelevantSnippets(message);
+    const chunks = await getRelevantChunks(message, 5);
+    if (chunks.length === 0)
+      return res.json({ answer: "No relevant information found in memory." });
 
-    if (snippets.length === 0) {
-      return res.json({
-        answer: "No relevant information found in the database.",
-      });
-    }
-
-    const answer = await askLLM(message, snippets);
+    const answer = await askLLM(message, chunks);
     res.json({ answer });
   } catch (err) {
-    console.error("Error in /chat:", err);
+    console.error("Chat error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// Start server
-app.listen(PORT, async () => {
-  await initMongo();
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Vector chatbot running on port ${PORT}`));
