@@ -24,7 +24,7 @@ const hfClient = new OpenAI({
 async function getRelevantSnippets(message) {
   try {
     await client.connect();
-    const db = client.db("chatbot_data");
+    const db = client.db("chatbotdb");
     const collection = db.collection("pages");
 
     // Use text index if available
