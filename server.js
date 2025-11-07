@@ -2,7 +2,6 @@ const express = require("express");
 const { MongoClient } = require("mongodb");
 const cors = require("cors");
 const OpenAI = require("openai"); // npm install openai
-require("dotenv").config(); // optional if you have .env locally
 
 const app = express();
 const PORT = process.env.PORT || 3000;
