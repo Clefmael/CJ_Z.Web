@@ -2,16 +2,19 @@ import express from "express";
 import { MongoClient } from "mongodb";
 import OpenAI from "openai";
 import cors from "cors";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-// Middleware
+
+// ES module __dirname fix
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Now you can serve static files
-app.use(express.static(join(__dirname)));  // serve index.html, chatbot.js, etc.
+// Serve static files from the project root
+app.use(express.static(join(__dirname)));
 
 const PORT = 3000;
 const mongoUri = process.env.MONGODB_URI;
@@ -41,7 +44,7 @@ async function getRelevantChunks(query, k = 5) {
     ])
     .toArray();
 
-  return results; // array of chunk documents
+  return results;
 }
 
 // 2️⃣ Ask LLM using retrieved chunks
@@ -50,7 +53,7 @@ async function askLLM(query, chunks) {
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
-    temperature: 0.2, // low creativity
+    temperature: 0.2,
     messages: [
       {
         role: "system",
@@ -87,4 +90,6 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Vector chatbot running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Vector chatbot running on port ${PORT}`)
+);
