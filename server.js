@@ -55,11 +55,20 @@ app.post("/chat", async (req, res) => {
     const db = client.db("chatbot_data");
     const collection = db.collection("pages");
 
-    // Retrieve latest pages or multiple pages if needed
-    const pages = await collection.find({}).sort({ scrapedAt: -1 }).limit(5).toArray();
-    const context = pages.map(p => p.text).join("\n\n");
+    // Find pages containing keywords from user message
+    const results = await collection
+      .find({ text: { $regex: message, $options: "i" } }) // case-insensitive match
+      .sort({ scrapedAt: -1 })
+      .limit(3)
+      .toArray();
 
-    const answer = await askLLM(message, context);
+    if (results.length === 0) {
+      res.json({ answer: "No matching information found in the database." });
+      return;
+    }
+
+    // Combine text from results to form response
+    const answer = results.map(r => r.text.slice(0, 500)).join("\n\n---\n\n");
     res.json({ answer });
   } catch (err) {
     console.error(err);
@@ -68,6 +77,7 @@ app.post("/chat", async (req, res) => {
     await client.close();
   }
 });
+
 
 // Root route for testing
 app.get("/", (req, res) => res.send("✅ Chatbot backend is running!"));
