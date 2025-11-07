@@ -7,9 +7,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static(__dirname)); // serve index.html, chatbot.js, etc.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Now you can serve static files
+app.use(express.static(join(__dirname)));  // serve index.html, chatbot.js, etc.
 
 const PORT = 3000;
 const mongoUri = process.env.MONGODB_URI;
