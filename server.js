@@ -1,43 +1,51 @@
 const express = require("express");
 const { MongoClient } = require("mongodb");
-const fetch = require("node-fetch");
 const cors = require("cors");
-const path = require("path");
+const OpenAI = require("openai"); // npm install openai
+require("dotenv").config(); // optional if you have .env locally
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-
-// Serve static frontend (index.html, chatbot.js, etc.)
-app.use(express.static(__dirname));
+app.use(express.static(__dirname)); // serve index.html + chatbot.js
 
 // MongoDB setup
 const mongoUri = process.env.MONGODB_URI;
 const client = new MongoClient(mongoUri);
 
-// Hugging Face LLM
+// Hugging Face Llama 3.1 client via OpenAI-compatible API
+const hfClient = new OpenAI({
+  apiKey: process.env.HF_TOKEN,
+  baseURL: "https://router.huggingface.co/v1",
+});
+
+// Ask LLM
 async function askLLM(question, context) {
   try {
-    const response = await fetch(
-      "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/json",
+    const completion = await hfClient.chat.completions.create({
+      model: "meta-llama/Llama-3.1-8B-Instruct:novita",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a helpful assistant. Answer clearly and concisely based on context.",
         },
-        body: JSON.stringify({
-          inputs: `Context:\n${context}\n\nUser Question: ${question}\nAnswer clearly and concisely:`,
-        }),
-      }
-    );
+        {
+          role: "user",
+          content: `Context:\n${context}\n\nUser Question: ${question}`,
+        },
+      ],
+      max_tokens: 512,
+    });
 
-    const data = await response.json();
-    return data[0]?.generated_text || "Sorry, I couldn’t generate an answer.";
+    return (
+      completion.choices[0]?.message?.content ||
+      "Sorry, I couldn't generate an answer."
+    );
   } catch (err) {
-    console.error(err);
+    console.error("LLM error:", err);
     return "Error fetching response from AI.";
   }
 }
@@ -52,11 +60,9 @@ app.post("/chat", async (req, res) => {
     const db = client.db("chatbot_data");
     const collection = db.collection("pages");
 
-    // Pull latest context from MongoDB
     const page = await collection.findOne({}, { sort: { scrapedAt: -1 } });
     const context = page?.text?.slice(0, 4000) || "";
 
-    // Ask LLM
     const answer = await askLLM(message, context);
     res.json({ answer });
   } catch (err) {
