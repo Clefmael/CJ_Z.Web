@@ -13,7 +13,7 @@ const client = new MongoClient(mongoUri);
 await client.connect();
 const db = client.db("chatbotdb");
 const collection = db.collection("pages");
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.HUGGINGFACE_API_KEY });
 
 // 1️⃣ Retrieve top-k chunks by vector similarity
 async function getRelevantChunks(query, k = 5) {
