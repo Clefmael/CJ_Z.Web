@@ -11,17 +11,16 @@ app.use(express.json());
 app.use(express.static(__dirname)); // serve index.html + chatbot.js
 
 // MongoDB setup
-const mongoUri = process.env.MONGODB_URI;
+const mongoUri = process.env.MONGODB_URI; // Render env var
 const client = new MongoClient(mongoUri);
 
 // Hugging Face Llama 3.1 client via OpenAI-compatible API
 const hfClient = new OpenAI({
-  apiKey: process.env.HUGGINGFACE_API_KEY,
+  apiKey: process.env.HUGGINGFACE_API_KEY, // Render env var
   baseURL: "https://router.huggingface.co/v1",
 });
 
-
-// Ask LLM
+// Ask LLM using only DB context
 async function askLLM(question, context) {
   try {
     const completion = await hfClient.chat.completions.create({
@@ -29,21 +28,17 @@ async function askLLM(question, context) {
       messages: [
         {
           role: "system",
-          content:
-            "You are a helpful assistant. Answer clearly and concisely based on context.",
+          content: "You are a helpful assistant. Answer ONLY using the context provided below."
         },
         {
           role: "user",
-          content: `Context:\n${context}\n\nUser Question: ${question}`,
-        },
+          content: `Context:\n${context}\n\nUser Question: ${question}`
+        }
       ],
       max_tokens: 512,
     });
 
-    return (
-      completion.choices[0]?.message?.content ||
-      "Sorry, I couldn't generate an answer."
-    );
+    return completion.choices[0]?.message?.content || "No answer found in the database.";
   } catch (err) {
     console.error("LLM error:", err);
     return "Error fetching response from AI.";
@@ -60,8 +55,9 @@ app.post("/chat", async (req, res) => {
     const db = client.db("chatbot_data");
     const collection = db.collection("pages");
 
-    const page = await collection.findOne({}, { sort: { scrapedAt: -1 } });
-    const context = page?.text?.slice(0, 4000) || "";
+    // Retrieve latest pages or multiple pages if needed
+    const pages = await collection.find({}).sort({ scrapedAt: -1 }).limit(5).toArray();
+    const context = pages.map(p => p.text).join("\n\n");
 
     const answer = await askLLM(message, context);
     res.json({ answer });
@@ -72,6 +68,9 @@ app.post("/chat", async (req, res) => {
     await client.close();
   }
 });
+
+// Root route for testing
+app.get("/", (req, res) => res.send("✅ Chatbot backend is running!"));
 
 // Start server
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
