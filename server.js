@@ -16,9 +16,10 @@ const client = new MongoClient(mongoUri);
 
 // Hugging Face Llama 3.1 client via OpenAI-compatible API
 const hfClient = new OpenAI({
-  apiKey: process.env.HF_TOKEN,
+  apiKey: process.env.HUGGINGFACE_API_KEY,
   baseURL: "https://router.huggingface.co/v1",
 });
+
 
 // Ask LLM
 async function askLLM(question, context) {
