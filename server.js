@@ -90,13 +90,51 @@ app.post("/chat", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "No message provided." });
 
-  const snippets = await getRelevantSnippets(message);
-  if (snippets.length === 0) {
-    return res.json({ answer: "No relevant information found in the database." });
-  }
+  try {
+    await client.connect();
+    const db = client.db("chatbotdb");
+    const collection = db.collection("pages");
 
-  const answer = await askLLM(message, snippets);
-  res.json({ answer });
+    // 1️⃣ Retrieve relevant snippets using text search
+    const snippets = await collection
+      .find({ $text: { $search: message } }, { score: { $meta: "textScore" } })
+      .sort({ score: { $meta: "textScore" } })
+      .limit(5)
+      .toArray();
+
+    if (snippets.length === 0) {
+      return res.json({ answer: "No relevant information found in the database." });
+    }
+
+    // Combine the text snippets
+    const context = snippets.map(s => s.text).join("\n\n---\n\n");
+
+    // 2️⃣ LLM call with strict instructions
+    const completion = await hfClient.chat.completions.create({
+      model: "meta-llama/Llama-3.1-8B-Instruct:novita",
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant. Answer concisely using ONLY the provided context. If the answer is not in the context, say you don't know."
+        },
+        {
+          role: "user",
+          content: `Context:\n${context}\n\nUser Question: ${message}`
+        }
+      ],
+      max_tokens: 512
+    });
+
+    const answer = completion.choices[0]?.message?.content || "No answer generated.";
+    res.json({ answer });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    await client.close();
+  }
 });
+
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
