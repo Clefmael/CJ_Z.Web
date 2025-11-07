@@ -83,26 +83,27 @@ $(function() {
         }
     }
 
-    async function handleBotResponse(text) {
-    const apiUrl = "https://cj-z-web.onrender.com/ask";
+   async function handleBotResponse(text) {
     try {
         const $loading = $('<div class="message bot-message"><div class="name">Bot</div><div class="text">...</div></div>');
         $messages.append($loading);
         $messages.scrollTop($messages[0].scrollHeight);
 
-        const res = await fetch(apiUrl, {
+        // Call the backend on the same domain
+        const res = await fetch("/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question: text })
+            body: JSON.stringify({ message: text })
         });
-        const data = await res.json();
 
+        const data = await res.json();
         $loading.remove();
         addMessage("Bot", data.answer || "I couldn't find an answer 😅");
     } catch {
         addMessage("Bot", "Something went wrong 😅");
     }
 }
+
 
 
     $sendBtn.on('click', () => {
