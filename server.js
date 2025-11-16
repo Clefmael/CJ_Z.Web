@@ -1,134 +1,106 @@
-//////////////////////////////
-//  IMPORTS
-//////////////////////////////
 import express from "express";
+import { MongoClient } from "mongodb";
+import OpenAI from "openai";
 import cors from "cors";
-import { Pinecone } from "@pinecone-database/pinecone";
-import { HfInference } from "@huggingface/inference";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { readFile } from "fs/promises";
 
-
-//////////////////////////////
-//  ESM __dirname FIX  (REQUIRED)
-//////////////////////////////
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-
-//////////////////////////////
-//  ENV VARIABLES (Render injects these)
-//////////////////////////////
-const HF_TOKEN = process.env.HUGGINGFACE_API_KEY;
-const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
-const PINECONE_INDEX = process.env.PINECONE_INDEX || "chatbot";
-
-if (!HF_TOKEN || !PINECONE_API_KEY) {
-    console.error("❌ Missing API keys");
-    process.exit(1);
-}
-
-
-//////////////////////////////
-// INITIALIZE CLIENTS
-//////////////////////////////
-const hf = new HfInference(HF_TOKEN);
-const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
-const index = pinecone.Index(PINECONE_INDEX);
-
-
-//////////////////////////////
-// EXPRESS SERVER
-//////////////////////////////
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ⭐ IMPORTANT: serve static files (this makes your page load)
-app.use(express.static(join(__dirname, "public")));  
-// If your index.html is not inside /public, change the folder above
+// ES module __dirname fix
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
+// Serve static files from the project root (main root)
+app.use(express.static(__dirname));
 
 const PORT = process.env.PORT || 3000;
+const mongoUri = process.env.MONGODB_URI;
+const client = new MongoClient(mongoUri);
+await client.connect();
+const db = client.db("chatbotdb");
+const collection = db.collection("pages");
+const openai = new OpenAI({ apiKey: process.env.HUGGINGFACE_API_KEY });
 
+// 1️⃣ Retrieve top-k chunks by vector similarity
+async function getRelevantChunks(query, k = 5) {
+  const qEmb = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: query,
+  });
 
-////////////////////////////////////////////////////////////
-// 🔍 1. VECTOR SEARCH (Pinecone)
-////////////////////////////////////////////////////////////
-async function getRelevantChunks(query, k = 3) {
-    const emb = await hf.featureExtraction({
-        model: "sentence-transformers/all-MiniLM-L6-v2",
-        inputs: query,
-    });
+  const results = await collection
+    .aggregate([
+      {
+        $vectorSearch: {
+          queryVector: qEmb.data[0].embedding,
+          path: "embedding",
+          numCandidates: 100,
+          limit: k,
+        },
+      },
+    ])
+    .toArray();
 
-    const vector = Array.isArray(emb[0]) ? emb[0] : emb;
-
-    const results = await index.query({
-        vector,
-        topK: k,
-        includeMetadata: true,
-    });
-
-    return results.matches.map((m) => ({
-        text: m.metadata?.text || "",
-        source: m.metadata?.source || "",
-    }));
+  return results;
 }
 
-
-////////////////////////////////////////////////////////////
-// 🧠 2. ASK HF LLM WITH CONTEXT
-////////////////////////////////////////////////////////////
+// 2️⃣ Ask LLM using retrieved chunks
 async function askLLM(query, chunks) {
-    const context = chunks.map((c) => c.text).join("\n---\n");
+  const context = chunks.map((c) => c.text).join("\n---\n");
 
-    const systemPrompt = `
-Use ONLY the provided context to answer.
-If the answer is not in the context, reply:
-"I don’t have that information in my memory."
-Keep responses under 3 sentences.
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content: `
+You are a chatbot whose memory comes ONLY from the database below.
+Answer using ONLY this memory. 
+If the answer is not in the memory, respond exactly with: "I don’t have that information in my memory."`,
+      },
+      {
+        role: "user",
+        content: `Database memory:\n${context}\n\nUser Question: ${query}`,
+      },
+    ],
+  });
 
-Context:
-${context}
-`;
-
-    const completion = await hf.chatCompletion({
-        model: "meta-llama/Llama-3.2-3B-Instruct",
-        messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: query },
-        ],
-    });
-
-    return completion.choices[0].message.content.trim();
+  return completion.choices[0].message.content.trim();
 }
 
-
-////////////////////////////////////////////////////////////
-// 💬 3. /chat ENDPOINT
-////////////////////////////////////////////////////////////
+// 3️⃣ Chat endpoint
 app.post("/chat", async (req, res) => {
-    try {
-        const { message } = req.body;
-        if (!message) return res.status(400).json({ error: "Message is required." });
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: "No message provided." });
 
-        const chunks = await getRelevantChunks(message, 3);
-        if (chunks.length === 0)
-            return res.json({ answer: "I don’t have that information in my memory." });
+  try {
+    const chunks = await getRelevantChunks(message, 5);
+    if (chunks.length === 0)
+      return res.json({ answer: "No relevant information found in memory." });
 
-        const answer = await askLLM(message, chunks);
-        res.json({ answer });
-
-    } catch (err) {
-        console.error("Chat Error:", err);
-        res.status(500).json({ error: "Server error" });
-    }
+    const answer = await askLLM(message, chunks);
+    res.json({ answer });
+  } catch (err) {
+    console.error("Chat error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-
-//////////////////////////////
-// START SERVER
-//////////////////////////////
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+// 4️⃣ Serve index.html for root or unmatched routes
+app.get(["/", "*"], async (req, res) => {
+  try {
+    const index = await readFile(join(__dirname, "index.html"), "utf-8");
+    res.send(index);
+  } catch (err) {
+    res.status(404).send("index.html not found in root");
+  }
 });
+
+app.listen(PORT, () =>
+  console.log(`🚀 Vector chatbot running on port ${PORT}`)
+);
