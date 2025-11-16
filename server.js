@@ -5,22 +5,20 @@ import express from "express";
 import cors from "cors";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { HfInference } from "@huggingface/inference";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 
 //////////////////////////////
-//  ENV VARIABLES
+// ENV VARIABLES (Render provides them automatically)
 //////////////////////////////
 const HF_TOKEN = process.env.HUGGINGFACE_API_KEY;
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX = process.env.PINECONE_INDEX || "chatbot";
 
 if (!HF_TOKEN || !PINECONE_API_KEY) {
-    console.error("❌ Missing HF or Pinecone API keys in .env");
+    console.error("❌ Missing HuggingFace or Pinecone API keys");
     process.exit(1);
 }
+
 
 //////////////////////////////
 //  INITIALIZE CLIENTS
@@ -29,6 +27,7 @@ const hf = new HfInference(HF_TOKEN);
 const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
 const index = pinecone.Index(PINECONE_INDEX);
 
+
 //////////////////////////////
 // EXPRESS SERVER
 //////////////////////////////
@@ -36,14 +35,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 
 ////////////////////////////////////////////////////////////
 // 🔍 1. GET RELEVANT CHUNKS USING PINECONE VECTOR SEARCH
 ////////////////////////////////////////////////////////////
 async function getRelevantChunks(query, k = 3) {
-    // 1. Embed query using HuggingFace embeddings
+    // Embed query using HuggingFace
     const emb = await hf.featureExtraction({
         model: "sentence-transformers/all-MiniLM-L6-v2",
         inputs: query,
@@ -51,7 +50,7 @@ async function getRelevantChunks(query, k = 3) {
 
     const qVector = Array.isArray(emb[0]) ? emb[0] : emb;
 
-    // 2. Pinecone similarity search
+    // Pinecone vector search
     const results = await index.query({
         vector: qVector,
         topK: k,
@@ -66,17 +65,17 @@ async function getRelevantChunks(query, k = 3) {
 
 
 ////////////////////////////////////////////////////////////
-// 🧠 2. ASK HF LLM USING CONTEXT (Stuff Document Chain)
+// 🧠 2. ASK HF LLM USING CONTEXT
 ////////////////////////////////////////////////////////////
 async function askLLM(query, chunks) {
     const context = chunks.map((c) => c.text).join("\n---\n");
 
     const systemPrompt = `
 You are an assistant for a question-answering task.
-Use ONLY the following retrieved context to answer the question.
-If the answer does not appear in the context, reply exactly:
+Use ONLY the provided context to answer.
+If the information is not present in the context, say:
 "I don’t have that information in my memory."
-Keep answers short (max 3 sentences).
+Limit answers to 3 sentences.
 
 Context:
 ${context}
@@ -86,7 +85,7 @@ ${context}
         model: "meta-llama/Llama-3.2-3B-Instruct",
         messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: query },
+            { role: "user", content: query }
         ]
     });
 
@@ -95,38 +94,33 @@ ${context}
 
 
 ////////////////////////////////////////////////////////////
-// 💬 3. CHAT RAG ENDPOINT
+// 💬 3. CHAT ENDPOINT
 ////////////////////////////////////////////////////////////
 app.post("/chat", async (req, res) => {
     const { message } = req.body;
 
     if (!message)
-        return res.status(400).json({ error: "You must send a message." });
+        return res.status(400).json({ error: "Message is required." });
 
     try {
-        // Step 1: search vector DB
         const chunks = await getRelevantChunks(message, 3);
 
-        if (chunks.length === 0) {
-            return res.json({
-                answer: "I don’t have that information in my memory.",
-            });
-        }
+        if (chunks.length === 0)
+            return res.json({ answer: "I don’t have that information in my memory." });
 
-        // Step 2: query LLM with context
         const answer = await askLLM(message, chunks);
-
         res.json({ answer });
+
     } catch (err) {
-        console.error("Chat Error:", err);
+        console.error("Chat error:", err);
         res.status(500).json({ error: "Server error" });
     }
 });
 
 
 //////////////////////////////
-//  START SERVER
+// START SERVER
 //////////////////////////////
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Server running on Render (port ${PORT})`);
 });
