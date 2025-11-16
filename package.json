@@ -9,11 +9,14 @@
     "mongodb": "^6.11.0",
     "node-fetch": "^3.3.2",
     "cors": "^2.8.5",
-    "openai": "^4.27.0"
+    "openai": "^4.27.0",
+    "@huggingface/inference": "^4.8.0",
+    "@pinecone-database/pinecone": "^2.0.0"
 
   },
   "license": "CJZ"
 }
+
 
 
 
