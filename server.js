@@ -1,95 +1,132 @@
+//////////////////////////////
+//  IMPORTS
+//////////////////////////////
 import express from "express";
-import { MongoClient } from "mongodb";
-import OpenAI from "openai";
 import cors from "cors";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { Pinecone } from "@pinecone-database/pinecone";
+import { HfInference } from "@huggingface/inference";
+import dotenv from "dotenv";
 
+dotenv.config();
+
+
+//////////////////////////////
+//  ENV VARIABLES
+//////////////////////////////
+const HF_TOKEN = process.env.HUGGINGFACE_API_KEY;
+const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
+const PINECONE_INDEX = process.env.PINECONE_INDEX || "chatbot";
+
+if (!HF_TOKEN || !PINECONE_API_KEY) {
+    console.error("❌ Missing HF or Pinecone API keys in .env");
+    process.exit(1);
+}
+
+//////////////////////////////
+//  INITIALIZE CLIENTS
+//////////////////////////////
+const hf = new HfInference(HF_TOKEN);
+const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
+const index = pinecone.Index(PINECONE_INDEX);
+
+//////////////////////////////
+// EXPRESS SERVER
+//////////////////////////////
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ES module __dirname fix
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Serve static files from the project root
-app.use(express.static(join(__dirname)));
-
 const PORT = 3000;
-const mongoUri = process.env.MONGODB_URI;
-const client = new MongoClient(mongoUri);
-await client.connect();
-const db = client.db("chatbotdb");
-const collection = db.collection("pages");
-const openai = new OpenAI({ apiKey: process.env.HUGGINGFACE_API_KEY });
 
-// 1️⃣ Retrieve top-k chunks by vector similarity
-async function getRelevantChunks(query, k = 5) {
-  const qEmb = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: query,
-  });
 
-  const results = await collection
-    .aggregate([
-      {
-        $vectorSearch: {
-          queryVector: qEmb.data[0].embedding,
-          path: "embedding",
-          numCandidates: 100,
-          limit: k,
-        },
-      },
-    ])
-    .toArray();
+////////////////////////////////////////////////////////////
+// 🔍 1. GET RELEVANT CHUNKS USING PINECONE VECTOR SEARCH
+////////////////////////////////////////////////////////////
+async function getRelevantChunks(query, k = 3) {
+    // 1. Embed query using HuggingFace embeddings
+    const emb = await hf.featureExtraction({
+        model: "sentence-transformers/all-MiniLM-L6-v2",
+        inputs: query,
+    });
 
-  return results;
+    const qVector = Array.isArray(emb[0]) ? emb[0] : emb;
+
+    // 2. Pinecone similarity search
+    const results = await index.query({
+        vector: qVector,
+        topK: k,
+        includeMetadata: true,
+    });
+
+    return results.matches.map((m) => ({
+        text: m.metadata.text || "",
+        source: m.metadata.source || "",
+    }));
 }
 
-// 2️⃣ Ask LLM using retrieved chunks
+
+////////////////////////////////////////////////////////////
+// 🧠 2. ASK HF LLM USING CONTEXT (Stuff Document Chain)
+////////////////////////////////////////////////////////////
 async function askLLM(query, chunks) {
-  const context = chunks.map((c) => c.text).join("\n---\n");
+    const context = chunks.map((c) => c.text).join("\n---\n");
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.2,
-    messages: [
-      {
-        role: "system",
-        content: `
-You are a chatbot whose memory comes ONLY from the database below.
-Answer using ONLY this memory. 
-If the answer is not in the memory, respond exactly with: "I don’t have that information in my memory."`,
-      },
-      {
-        role: "user",
-        content: `Database memory:\n${context}\n\nUser Question: ${query}`,
-      },
-    ],
-  });
+    const systemPrompt = `
+You are an assistant for a question-answering task.
+Use ONLY the following retrieved context to answer the question.
+If the answer does not appear in the context, reply exactly:
+"I don’t have that information in my memory."
+Keep answers short (max 3 sentences).
 
-  return completion.choices[0].message.content.trim();
+Context:
+${context}
+`;
+
+    const response = await hf.chatCompletion({
+        model: "meta-llama/Llama-3.2-3B-Instruct",
+        messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: query },
+        ]
+    });
+
+    return response.choices[0].message.content.trim();
 }
 
-// 3️⃣ Chat endpoint
+
+////////////////////////////////////////////////////////////
+// 💬 3. CHAT RAG ENDPOINT
+////////////////////////////////////////////////////////////
 app.post("/chat", async (req, res) => {
-  const { message } = req.body;
-  if (!message) return res.status(400).json({ error: "No message provided." });
+    const { message } = req.body;
 
-  try {
-    const chunks = await getRelevantChunks(message, 5);
-    if (chunks.length === 0)
-      return res.json({ answer: "No relevant information found in memory." });
+    if (!message)
+        return res.status(400).json({ error: "You must send a message." });
 
-    const answer = await askLLM(message, chunks);
-    res.json({ answer });
-  } catch (err) {
-    console.error("Chat error:", err);
-    res.status(500).json({ error: "Server error" });
-  }
+    try {
+        // Step 1: search vector DB
+        const chunks = await getRelevantChunks(message, 3);
+
+        if (chunks.length === 0) {
+            return res.json({
+                answer: "I don’t have that information in my memory.",
+            });
+        }
+
+        // Step 2: query LLM with context
+        const answer = await askLLM(message, chunks);
+
+        res.json({ answer });
+    } catch (err) {
+        console.error("Chat Error:", err);
+        res.status(500).json({ error: "Server error" });
+    }
 });
 
-app.listen(PORT, () =>
-  console.log(`🚀 Vector chatbot running on port ${PORT}`)
-);
+
+//////////////////////////////
+//  START SERVER
+//////////////////////////////
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+});
